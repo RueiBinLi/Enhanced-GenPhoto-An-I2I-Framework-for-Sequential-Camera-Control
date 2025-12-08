@@ -51,8 +51,8 @@ class Camera_Embedding(Dataset):
 
     def load(self):
 
-        if len(self.bokehK_values) != 5:
-            raise ValueError("Expected 5 bokehK values")
+        # if len(self.bokehK_values) != 5:
+        #     raise ValueError("Expected 5 bokehK values")
 
         # Generate prompts for each bokehK value and append bokehK information to caption
         prompts = []
