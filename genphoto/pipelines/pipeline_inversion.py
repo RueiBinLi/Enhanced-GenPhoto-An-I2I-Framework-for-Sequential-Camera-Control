@@ -36,13 +36,27 @@ class GenPhotoInversionPipeline(GenPhotoPipeline):
             raise ValueError(f"Camera embedding shape error: {camera_embedding.shape}")
 
         # 2. Encode Image to Latents
-        # 使用 .mode() 確保確定性 (Deterministic)，這是還原的關鍵
         image = image.to(device=device, dtype=self.vae.dtype)
-        init_latents = self.vae.encode(image).latent_dist.mode()
-        init_latents = self.vae.config.scaling_factor * init_latents
+        
+        # 分歧處理：如果是 5D (Focal Mode)
+        if image.ndim == 5:
+            b, c, f, h, w = image.shape
+            image_reshaped = rearrange(image, 'b c f h w -> (b f) c h w')
+            
+            init_latents = self.vae.encode(image_reshaped).latent_dist.mode()
+            init_latents = self.vae.config.scaling_factor * init_latents
+            
+            # [B*F, C, H, W] -> [B, C, F, H, W]
+            init_latents = rearrange(init_latents, '(b f) c h w -> b c f h w', b=b)
+            
+        # 分歧處理：如果是 4D (Other Modes)
+        else:
+            init_latents = self.vae.encode(image).latent_dist.mode()
+            init_latents = self.vae.config.scaling_factor * init_latents
 
-        if init_latents.ndim == 4:
-            init_latents = init_latents.unsqueeze(2).repeat(1, 1, video_length, 1, 1)
+            # 單張圖複製成多幀 [B, C, H, W] -> [B, C, F, H, W]
+            if init_latents.ndim == 4:
+                init_latents = init_latents.unsqueeze(2).repeat(1, 1, video_length, 1, 1)
         
         latents = init_latents.to(device=device, dtype=dtype)
 

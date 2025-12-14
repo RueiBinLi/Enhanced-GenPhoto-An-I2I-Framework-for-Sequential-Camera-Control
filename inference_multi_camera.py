@@ -5,6 +5,7 @@ import argparse
 import json
 import numpy as np
 import torch.nn.functional as F
+import math
 from PIL import Image
 from torchvision import transforms
 from omegaconf import OmegaConf
@@ -27,6 +28,39 @@ logger = logging.getLogger(__name__)
 # ==========================================
 # 1. Embedding 生成邏輯 (嚴格參照官方實作)
 # ==========================================
+
+# 來自 dataset.py 的物理模擬函式
+def crop_focal_length(img_pil, base_focal_length, target_focal_length, target_height, target_width, sensor_height=24.0, sensor_width=36.0):
+    width, height = img_pil.size
+
+    # Calculate base and target FOV
+    base_x_fov = 2.0 * math.atan(sensor_width * 0.5 / base_focal_length)
+    base_y_fov = 2.0 * math.atan(sensor_height * 0.5 / base_focal_length)
+
+    target_x_fov = 2.0 * math.atan(sensor_width * 0.5 / target_focal_length)
+    target_y_fov = 2.0 * math.atan(sensor_height * 0.5 / target_focal_length)
+
+    # Calculate crop ratio
+    crop_ratio = min(target_x_fov / base_x_fov, target_y_fov / base_y_fov)
+
+    crop_width = int(round(crop_ratio * width))
+    crop_height = int(round(crop_ratio * height))
+
+    # Ensure crop dimensions are within valid bounds
+    crop_width = max(1, min(width, crop_width))
+    crop_height = max(1, min(height, crop_height))
+
+    # Crop coordinates
+    left = int((width - crop_width) / 2)
+    top = int((height - crop_height) / 2)
+    right = int((width + crop_width) / 2)
+    bottom = int((height + crop_height) / 2)
+
+    # Crop and Resize
+    zoomed_img = img_pil.crop((left, top, right, bottom))
+    resized_img = zoomed_img.resize((target_width, target_height), Image.Resampling.LANCZOS)
+    
+    return resized_img
 
 def create_bokehK_embedding(bokehK_values, target_height, target_width):
     # bokehK_values: tensor [N] or [N, 1]
@@ -116,10 +150,10 @@ def create_color_temperature_embedding(color_temperature_values, target_height, 
     
     for val_tensor in iter_values:
         val = val_tensor.item()
-        if val > 100:
-            kelvin = val
-        else:
-            kelvin = min_color_temperature + (val * (max_color_temperature - min_color_temperature))
+        # Replicating the logic from training/original inference which treats input as normalized
+        # even if it is raw Kelvin. This results in a specific embedding (likely solid blue for raw Kelvin)
+        # that the model learned to expect.
+        kelvin = min_color_temperature + (val * (max_color_temperature - min_color_temperature))
         
         rgb = kelvin_to_rgb(kelvin)
         rgb_factors.append(rgb)
@@ -318,42 +352,99 @@ def main():
     cfg = OmegaConf.load(args.config)
     pipeline, device = load_models_inversion(cfg)
     
-    # 影像前處理
-    raw_image = Image.open(args.input_image).convert("RGB").resize((384, 256))
-    image_tensor = transforms.ToTensor()(raw_image).unsqueeze(0).to(device)
-    image_tensor = image_tensor * 2.0 - 1.0
-
-    # 2. 準備參數
+# ==========================================
+    # 2. 準備參數與影像輸入
+    # ==========================================
+    
+    raw_image = Image.open(args.input_image).convert("RGB")
+    
+    # 準備數值
     target_vals_list = json.loads(args.param_list)
     video_len = len(target_vals_list)
+    target_vals = torch.tensor(target_vals_list, dtype=torch.float32)
     
+    # [回復] 定義 Source Values (初始值) 用於非 Focal 模式
     initial_val = target_vals_list[0]
     source_vals = torch.tensor([initial_val] * video_len, dtype=torch.float32)
-    target_vals = torch.tensor(target_vals_list, dtype=torch.float32)
 
-    # 建立 Embedding
-    source_embed = Universal_Camera_Embedding(args.setting_type, source_vals, pipeline.tokenizer, pipeline.text_encoder, device).load()
-    target_embed = Universal_Camera_Embedding(args.setting_type, target_vals, pipeline.tokenizer, pipeline.text_encoder, device).load()
+    # 準備 Transforms
+    pixel_transforms = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
+    ])
+
+    # ==========================================
+    # [關鍵邏輯分歧] 依據設定類型決定 Inversion 策略
+    # ==========================================
     
-    source_embed = rearrange(source_embed.unsqueeze(0), "b f c h w -> b c f h w")
-    target_embed = rearrange(target_embed.unsqueeze(0), "b f c h w -> b c f h w")
+    if args.setting_type == 'focal':
+        logger.info("📷 Focal Length Mode: Using Pre-warped Video & Target Embedding")
+        
+        # --- Focal Path: 物理模擬影片 + Target Embedding ---
+        video_frames = []
+        base_fl = 24.0
+        
+        for val in target_vals_list:
+            input_resized = raw_image.resize((384, 256), Image.Resampling.LANCZOS)
+            simulated_img = crop_focal_length(
+                input_resized, 
+                base_focal_length=base_fl, 
+                target_focal_length=val, 
+                target_height=256, 
+                target_width=384
+            )
+            video_frames.append(simulated_img)
+        
+        # 製作 5D Tensor: [1, C, F, H, W]
+        video_tensor = torch.stack([pixel_transforms(img) for img in video_frames])
+        inference_image_input = rearrange(video_tensor, "f c h w -> 1 c f h w").to(device)
+        
+        # Embedding 使用 Target (因為影像已經是 Target 的樣子了)
+        inference_embed_input = Universal_Camera_Embedding(args.setting_type, target_vals, pipeline.tokenizer, pipeline.text_encoder, device).load()
+        inference_embed_input = rearrange(inference_embed_input.unsqueeze(0), "b f c h w -> b c f h w")
 
-    # 3. Inversion
-    logger.info(f"Running Inversion with STATIC {args.setting_type} (Val: {initial_val})...")
+    else:
+        logger.info(f"🎥 {args.setting_type} Mode: Using Static Image & Source Embedding")
+        
+        # --- Others Path: 單張靜態圖 + Source Embedding ---
+        # 這是原本正確的邏輯，回復它以確保其他模式正常
+        resized_image = raw_image.resize((384, 256), Image.Resampling.LANCZOS)
+        
+        # 製作 4D Tensor: [1, C, H, W] (單張圖，讓 pipeline 自動複製)
+        image_tensor = pixel_transforms(resized_image).unsqueeze(0).to(device)
+        inference_image_input = image_tensor
+        
+        # Embedding 使用 Source (因為影像還是原圖，對應初始參數)
+        source_embed = Universal_Camera_Embedding(args.setting_type, source_vals, pipeline.tokenizer, pipeline.text_encoder, device).load()
+        inference_embed_input = rearrange(source_embed.unsqueeze(0), "b f c h w -> b c f h w")
+
+
+    # ==========================================
+    # 3. Inversion (使用分歧後的輸入)
+    # ==========================================
+    logger.info(f"Running Inversion...")
+    
     inverted_latents = pipeline.invert(
-        image=image_tensor,
+        image=inference_image_input,  # Focal 是 5D Video; 其他是 4D Image
         prompt=args.base_scene,
-        camera_embedding=source_embed,
+        camera_embedding=inference_embed_input, # Focal 是 Target; 其他是 Source
         num_inference_steps=25,
         video_length=video_len
     )
 
+    # ==========================================
     # 4. Generation
-    logger.info(f"Running Generation with DYNAMIC {args.setting_type}...")
+    # ==========================================
+    logger.info(f"Running Generation...")
+    
+    # 生成時一律使用 Target Embedding
+    target_embed = Universal_Camera_Embedding(args.setting_type, target_vals, pipeline.tokenizer, pipeline.text_encoder, device).load()
+    target_embed = rearrange(target_embed.unsqueeze(0), "b f c h w -> b c f h w")
+    
     with torch.no_grad():
         output = pipeline(
             prompt=args.base_scene,
-            camera_embedding=target_embed,
+            camera_embedding=target_embed, # 生成永遠用 Target
             video_length=video_len,
             height=256,
             width=384,
@@ -362,18 +453,16 @@ def main():
             latents=inverted_latents 
         ).videos[0]
 
-    # 5. 存檔
+    # 5. 存檔 (保持不變)
     timestamp = datetime.now().strftime("%H%M%S")
     save_dir = os.path.join(args.output_dir, args.setting_type)
     os.makedirs(save_dir, exist_ok=True)
-    
     save_path = os.path.join(save_dir, f"{timestamp}_val{initial_val}_to_{target_vals_list[-1]}.gif")
     save_videos_grid(output[None, ...], save_path)
     logger.info(f"Saved result to {save_path}")
 
 if __name__ == "__main__":
     main()
-
 '''
 python inference_multi_camera.py \
   --setting_type bokeh \
