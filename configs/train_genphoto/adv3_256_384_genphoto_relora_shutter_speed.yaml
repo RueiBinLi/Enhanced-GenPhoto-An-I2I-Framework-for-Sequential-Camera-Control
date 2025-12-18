@@ -1,7 +1,7 @@
-resume_from: "/weights/checkpoint-shutter_speed.ckpt"
+resume_from: "./models/weights/checkpoint-shutter_speed.ckpt"
 
 output_dir: "output/genphoto_model_shutter_speed"
-pretrained_model_path: "/stable-diffusion-v1-5/"
+pretrained_model_path: "./models/stable-diffusion-v1-5/"
 unet_subfolder: "unet_merged"
 
 train_data:
