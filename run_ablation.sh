@@ -57,7 +57,7 @@ for method in "${METHODS[@]}"; do
 
             python unified_inference.py \
                 --multi_params "$MULTI_PARAMS" \
-                --input_image "$INPUT_IMAGE" \ 
+                --input_image "$INPUT_IMAGE" \
                 --base_scene "$BASE_SCENE" \
                 --strength "$STRENGTH" \
                 --method "$method" \
