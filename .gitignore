@@ -1,0 +1,17 @@
+# Ignore model weights
+*.ckpt
+*.safetensors
+*.bin
+*.pth
+*.pyc
+__pycache__/
+
+# Ignore outputs
+inference_output/
+outputs/
+__pycache__/
+*.pyc
+
+models/stable-diffusion-v1-5/*
+models/weights/*
+!*.gitkeep
