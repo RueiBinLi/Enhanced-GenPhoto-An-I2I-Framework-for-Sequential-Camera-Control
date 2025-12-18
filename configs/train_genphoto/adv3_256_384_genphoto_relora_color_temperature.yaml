@@ -1,7 +1,7 @@
-resume_from: "/weights/checkpoint-color_temperature.ckpt"
+resume_from: "./models/weights/checkpoint-color_temperature.ckpt"
 
 output_dir: "output/genphoto_model_color_temperature"
-pretrained_model_path: "/stable-diffusion-v1-5/"
+pretrained_model_path: "./models/stable-diffusion-v1-5/"
 unet_subfolder: "unet_merged"
 
 train_data:
