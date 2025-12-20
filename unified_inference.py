@@ -4,6 +4,7 @@ import logging
 import argparse
 import json
 import gc
+import math
 import numpy as np
 import torch.nn.functional as F
 from PIL import Image
@@ -26,6 +27,38 @@ logger = logging.getLogger(__name__)
 # ==========================================
 # 1. Embedding Helper Functions
 # ==========================================
+
+def crop_focal_length(img_pil, base_focal_length, target_focal_length, target_height, target_width, sensor_height=24.0, sensor_width=36.0):
+    width, height = img_pil.size
+
+    # Calculate base and target FOV
+    base_x_fov = 2.0 * math.atan(sensor_width * 0.5 / base_focal_length)
+    base_y_fov = 2.0 * math.atan(sensor_height * 0.5 / base_focal_length)
+
+    target_x_fov = 2.0 * math.atan(sensor_width * 0.5 / target_focal_length)
+    target_y_fov = 2.0 * math.atan(sensor_height * 0.5 / target_focal_length)
+
+    # Calculate crop ratio
+    crop_ratio = min(target_x_fov / base_x_fov, target_y_fov / base_y_fov)
+
+    crop_width = int(round(crop_ratio * width))
+    crop_height = int(round(crop_ratio * height))
+
+    # Ensure crop dimensions are within valid bounds
+    crop_width = max(1, min(width, crop_width))
+    crop_height = max(1, min(height, crop_height))
+
+    # Crop coordinates
+    left = int((width - crop_width) / 2)
+    top = int((height - crop_height) / 2)
+    right = int((width + crop_width) / 2)
+    bottom = int((height + crop_height) / 2)
+
+    # Crop and Resize
+    zoomed_img = img_pil.crop((left, top, right, bottom))
+    resized_img = zoomed_img.resize((target_width, target_height), Image.Resampling.LANCZOS)
+    
+    return resized_img
 
 def create_bokehK_embedding(bokehK_values, target_height, target_width):
     bokehK_values = bokehK_values.cpu().float()
@@ -128,7 +161,7 @@ def create_color_temperature_embedding(color_temperature_values, target_height, 
     return color_temperature_embedding
 
 def create_shutter_speed_embedding(shutter_speed_values, target_height, target_width, base_exposure=0.5):
-    shutter_speed_values = shutter_speed_values.cpu().float()
+    shutter_speed_values = shutter_speed_values.cpu().float().view(-1)
     f = shutter_speed_values.shape[0]
     fwc = 32000.0
     scales = (shutter_speed_values / base_exposure) * (fwc / (fwc + 0.0001))
@@ -373,31 +406,41 @@ def run_inference(multi_params, input_image_path, strength, output_dir, base_sce
                         strength=strength
                     )
             elif method == 'DDIM_Inversion':
-                # Determine Source Value for Inversion
                 if setting_type == 'focal':
-                    source_val_item = 24.0 
-                elif setting_type == 'color':
-                    source_val_item = 5500.0
-                elif setting_type == 'shutter':
-                    source_val_item = 0.5 
-                elif setting_type == 'bokeh':
-                    source_val_item = values[0] # Use first target value as source approximation
+                    # --- Focal Path: Pre-warped Video + Target Embedding ---
+                    video_frames = []
+                    base_fl = 24.0
+                    for val in values:
+                        warped_img = crop_focal_length(input_pil, base_fl, val, height, width)
+                        video_frames.append(warped_img)
+                    
+                    # Stack to [1, C, F, H, W]
+                    video_tensor = torch.stack([preprocess_image_pil(img, height, width).squeeze(0) for img in video_frames])
+                    inference_image_input = rearrange(video_tensor, "f c h w -> 1 c f h w").to(device)
+                    
+                    # Embedding: Use Target Values (camera_embedding is already computed as Target)
+                    inference_embed_input = camera_embedding
+                    
                 else:
+                    # --- Others Path: Static Image + Source Embedding ---
+                    inference_image_input = init_tensor # [1, C, H, W]
+                    
+                    # Embedding: Use Source Values (Initial Value Repeated)
                     source_val_item = values[0]
-                
-                source_vals = torch.tensor([source_val_item] * len(values), dtype=torch.float32)
-                source_embed_obj = Universal_Camera_Embedding(
-                    setting_type, source_vals, pipeline.tokenizer, pipeline.text_encoder, device, sample_size=[height, width]
-                )
-                source_embed = source_embed_obj.load()
-                source_embed = rearrange(source_embed.unsqueeze(0), "b f c h w -> b c f h w")
-                
+                    source_vals = torch.tensor([source_val_item] * len(values), dtype=torch.float32)
+                    
+                    source_embed_obj = Universal_Camera_Embedding(
+                        setting_type, source_vals, pipeline.tokenizer, pipeline.text_encoder, device, sample_size=[height, width]
+                    )
+                    source_embed = source_embed_obj.load()
+                    inference_embed_input = rearrange(source_embed.unsqueeze(0), "b f c h w -> b c f h w")
+
                 # Run Inversion
-                logger.info(f"    Running Inversion (Source Val: {source_val_item})...")
+                logger.info(f"    Running Inversion ({setting_type})...")
                 inverted_latents = pipeline.invert(
-                    image=init_tensor,
+                    image=inference_image_input,
                     prompt=base_scene,
-                    camera_embedding=source_embed,
+                    camera_embedding=inference_embed_input,
                     num_inference_steps=25,
                     video_length=len(values)
                 )
