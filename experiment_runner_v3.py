@@ -202,7 +202,7 @@ class Universal_Camera_Embedding(Dataset):
         return torch.cat((vis.to(self.device), ccl), dim=1)
 
 # ==============================================================================
-# 3. 模型載入 (強制載入所有權重)
+# 3. 模型載入
 # ==============================================================================
 
 def load_models_inversion(cfg, device):
@@ -239,7 +239,6 @@ def load_models_inversion(cfg, device):
         **cfg.attention_processor_kwargs
     )
 
-    # 強制載入，失敗則報錯
     if cfg.lora_ckpt:
         logger.info(f"Loading Spatial LoRA: {cfg.lora_ckpt}")
         st = torch.load(cfg.lora_ckpt, map_location=device)
@@ -276,7 +275,7 @@ class ExperimentRunner:
     def save_split_frames(self, video_tensor, metadata_base, save_dir, param_list, setting_key, base_name):
         """
         將 Video Tensor [1, C, F, H, W] 拆解成單張 PNG 並儲存
-        使用格式: {base_name}_{setting_key}{val}.png
+        [修正] 移除錯誤的 normalization，保持與 GIF 相同的亮度處理
         """
         # [1, C, F, H, W] -> [F, C, H, W]
         video_tensor = video_tensor.squeeze(0).permute(1, 0, 2, 3) 
@@ -285,13 +284,14 @@ class ExperimentRunner:
         logger.info(f"  Saving {len(video_tensor)} frames to {save_dir}...")
         
         for i, frame in enumerate(video_tensor):
-            frame_np = ((frame.permute(1, 2, 0).cpu().numpy() * 0.5 + 0.5) * 255).astype(np.uint8)
+            # [修正] 移除 * 0.5 + 0.5，直接 scale 到 255
+            # 輸入已經是 [0, 1] 範圍
+            frame_np = (frame.permute(1, 2, 0).cpu().numpy() * 255).clip(0, 255).astype(np.uint8)
             img = Image.fromarray(frame_np)
             
             val = param_list[i]
             
-            # [修改] 檔名格式: 原始名稱_參數名數值.png
-            # 例如: 000059_bokeh5.0.png 或 000059_bokeh5.0_shutter0.5.png
+            # 檔名格式: 原始名稱_參數名數值.png
             filename = f"{base_name}_{setting_key}{val}.png"
             path = os.path.join(save_dir, filename)
             
@@ -311,8 +311,7 @@ class ExperimentRunner:
 
     def save_gif(self, video_tensor, save_dir, base_name, setting_key, param_list):
         """
-        儲存原始 Video 為 GIF
-        格式: {base_name}_{setting_key}_val{start}_to_{end}.gif
+        儲存原始 Video 為 GIF，方便與 PNG 比對
         """
         start = param_list[0]
         end = param_list[-1]
@@ -324,7 +323,7 @@ class ExperimentRunner:
         logger.info(f"  Saved GIF to {save_path}")
 
     def process_batch_i2i(self, pipeline, image_input, prompt, param_list, setting_type):
-        """I2I (Ours) 流程：包含 Inversion + Generation"""
+        """I2I (Ours) 流程"""
         video_len = len(param_list)
         
         # 1. 準備 Embedding (Target)
@@ -432,7 +431,6 @@ class ExperimentRunner:
                 try: param_list = json.loads(item[info['list_key']])
                 except: continue
                 
-                # 取得原圖檔名 (不含路徑和副檔名) 用於命名
                 if base_img_path:
                     base_name = os.path.splitext(os.path.basename(base_img_path))[0]
                 else:
@@ -441,10 +439,8 @@ class ExperimentRunner:
                 # --- A. Baseline (T2I) ---
                 res_video_t2i = self.process_batch_t2i(pipeline, caption, param_list, setting_type)
                 
-                # 存 GIF
                 self.save_gif(res_video_t2i, out_baseline, base_name, setting_type, param_list)
                 
-                # 存 PNGs
                 recs_t = self.save_split_frames(res_video_t2i, {
                     "origin_source": base_img_path,
                     "prompt": caption,
@@ -469,7 +465,6 @@ class ExperimentRunner:
                     }, out_ours, param_list, setting_type, base_name)
                     meta_ours.extend(recs_o)
 
-            # 存 Metadata
             with open(os.path.join(out_baseline, "metadata.json"), "w") as f:
                 json.dump(meta_baseline, f, indent=4)
             with open(os.path.join(out_ours, "metadata.json"), "w") as f:
@@ -519,7 +514,6 @@ class ExperimentRunner:
                 try: param_list = json.loads(item[info['list_key']])
                 except: continue
                 
-                # 隨機選一張圖
                 src_item = random.choice(pool)
                 src_path = src_item['_abs_path']
                 if not os.path.exists(src_path): continue
@@ -527,16 +521,13 @@ class ExperimentRunner:
                 src_img = Image.open(src_path).convert("RGB")
                 src_prompt = src_item['prompt']
                 
-                # 繼承上一階段的檔名 (去掉 .png)
+                # 繼承檔名 (去掉副檔名)
                 base_name = os.path.splitext(src_item['filename'])[0]
 
-                # 執行 I2I (Sequence Mode)
                 res_video = self.process_batch_i2i(pipeline, src_img, src_prompt, param_list, setting_type)
                 
-                # 存 GIF
                 self.save_gif(res_video, out_dir, base_name, setting_type, param_list)
 
-                # 存 PNGs
                 recs = self.save_split_frames(res_video, {
                     "origin_source": src_item['origin_source'],
                     "prompt": src_prompt,
