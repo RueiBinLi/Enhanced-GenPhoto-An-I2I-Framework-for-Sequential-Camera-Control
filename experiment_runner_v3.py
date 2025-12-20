@@ -256,7 +256,7 @@ def load_models_inversion(cfg, device):
         unet.load_state_dict(st['attention_processor_state_dict'], strict=False)
     else:
         raise ValueError("Critical: No Camera Adaptor Checkpoint defined!")
-    pipeline.to(device)
+
     return pipeline
 
 # ==============================================================================
