@@ -238,6 +238,7 @@ def load_models_inversion(cfg, device):
         motion_lora_kwargs={"lora_rank": cfg.motion_lora_rank, "lora_scale": cfg.motion_lora_scale},
         **cfg.attention_processor_kwargs
     )
+    unet.to(device)
 
     if cfg.lora_ckpt:
         logger.info(f"Loading Spatial LoRA: {cfg.lora_ckpt}")
@@ -494,14 +495,27 @@ class ExperimentRunner:
         prev_stage_prefix = f"stage{stage_num-1}_baseline"
         if stage_num == 2: prev_stage_prefix = "stage1_baseline" 
 
-        pool = self.build_image_pool(self.args.output_dir, prev_stage_prefix)
-        if not pool: raise ValueError("Pool empty!")
+        source_dir = self.args.prev_stage_dir if self.args.prev_stage_dir else self.args.output_dir
+        pool = self.build_image_pool(source_dir, prev_stage_prefix)
+        
+        if not pool: 
+            raise ValueError(f"Pool empty! Could not find '{prev_stage_prefix}*' in {source_dir}")
 
         for setting_name, info in SETTINGS_CONFIG.items():
             logger.info(f"--- Stage {stage_num}: {setting_name} ---")
             cfg = OmegaConf.load(info['config'])
             pipeline = load_models_inversion(cfg, self.device)
             setting_type = info['type_key']
+
+            # Filter pool: avoid applying the same setting type twice
+            valid_pool = [
+                p for p in pool 
+                if not any(setting_type in h for h in p.get('history', []))
+            ]
+            
+            if not valid_pool:
+                logger.warning(f"Skipping {setting_name}: No images in pool without existing {setting_type} history.")
+                continue
 
             with open(info['json'], 'r') as f:
                 json_data = json.load(f)
@@ -514,7 +528,7 @@ class ExperimentRunner:
                 try: param_list = json.loads(item[info['list_key']])
                 except: continue
                 
-                src_item = random.choice(pool)
+                src_item = random.choice(valid_pool)
                 src_path = src_item['_abs_path']
                 if not os.path.exists(src_path): continue
                 
@@ -548,8 +562,9 @@ class ExperimentRunner:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--stage", type=int, required=True)
-    parser.add_argument("--base_model", type=str, default="stable-diffusion-v1-5/stable-diffusion-v1-5") 
+    parser.add_argument("--base_model", type=str, default="./models/stable-diffusion-v1-5/stable-diffusion-v1-5") 
     parser.add_argument("--output_dir", type=str, default="experiments_final")
+    parser.add_argument("--prev_stage_dir", type=str, default=None, help="Optional: Directory to read previous stage results from")
     parser.add_argument("--steps", type=int, default=25)
     parser.add_argument("--cfg", type=float, default=1.5)
     parser.add_argument("--seed", type=int, default=42)
