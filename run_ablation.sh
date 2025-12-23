@@ -43,13 +43,8 @@ for method in "${METHODS[@]}"; do
             list1=$(get_list $type1)
             list2=$(get_list $type2)
              
-            # Construct JSON string for multi_params
-            # Note: We use python to ensure valid JSON formatting if needed, but simple string manipulation works here
-            # Order matters: type1 first, then type2
             MULTI_PARAMS="{\"$type1\": $list1, \"$type2\": $list2}"
              
-            # Define output directory specific to this combination
-            # The python script appends the method name to this path
             OUTPUT_DIR="outputs/ablation/${type1}_${type2}"
              
             echo "Params: $MULTI_PARAMS"
