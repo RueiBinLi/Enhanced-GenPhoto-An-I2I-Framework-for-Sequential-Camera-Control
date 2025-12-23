@@ -12,13 +12,10 @@ from einops import rearrange
 from transformers import CLIPTokenizer, CLIPTextModel
 from diffusers import AutoencoderKL, DDIMScheduler
 
-# 沿用原本的 imports
 from genphoto.pipelines.pipeline_animation import GenPhotoPipeline
 from genphoto.models.unet import UNet3DConditionModelCameraCond
 from genphoto.models.camera_adaptor import CameraCameraEncoder, CameraAdaptor
 from genphoto.utils.util import save_videos_grid
-# 這裡 import 你的 embedding 處理類別 (假設在 inference_bokehK.py 裡面有定義或你把它移到了 utils)
-# 為了方便，這裡我將 inference_bokehK.py 中的 Camera_Embedding 複製過來改寫，或者你可以直接 import 它
 from inference_bokehK import Camera_Embedding
 import inspect
 print(f"DEBUG: Loading GenPhotoPipeline from: {inspect.getfile(GenPhotoPipeline)}")
@@ -104,7 +101,6 @@ def preprocess_image(image_path, height, width):
     transform = transforms.Compose([
         transforms.Resize((height, width)),
         transforms.ToTensor(),
-        # [CRITICAL FIX] 必須給 3 個 mean 和 3 個 std，對應 R, G, B
         transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5]) 
     ])
     return transform(image).unsqueeze(0)
@@ -112,23 +108,18 @@ def preprocess_image(image_path, height, width):
 def run_i2v_inference(pipeline, tokenizer, text_encoder, base_scene, bokehK_list, input_image_path, strength, output_dir, device, video_length=5, height=256, width=384):
     os.makedirs(output_dir, exist_ok=True)
 
-    # 1. 準備輸入圖片
     init_image = preprocess_image(input_image_path, height, width).to(device)
 
-    # 2. 準備相機參數 (這裡示範 Bokeh，若要混用其他參數可在此擴充)
     bokehK_list_str = bokehK_list
     bokehK_values = json.loads(bokehK_list_str)
     bokehK_values = torch.tensor(bokehK_values).unsqueeze(1)
     
-    # 建立 Camera Embedding
-    # 注意: Camera_Embedding 類別來自 inference_bokehK.py，確保它能被 import
     camera_embedding_obj = Camera_Embedding(bokehK_values, tokenizer, text_encoder, device, sample_size=[height, width])
     camera_embedding = camera_embedding_obj.load()
     camera_embedding = rearrange(camera_embedding.unsqueeze(0), "b f c h w -> b c f h w")
 
     logger.info(f"Running Image-to-Video with strength: {strength}")
 
-    # 3. 執行 Pipeline (新增了 image 和 strength 參數)
     with torch.no_grad():
         sample = pipeline(
             prompt=base_scene,
@@ -138,8 +129,8 @@ def run_i2v_inference(pipeline, tokenizer, text_encoder, base_scene, bokehK_list
             width=width,
             num_inference_steps=25,
             guidance_scale=8.0,
-            image=init_image,    # <--- 輸入圖片
-            strength=strength    # <--- 重繪強度 (建議 0.6 - 0.9)
+            image=init_image,
+            strength=strength
         ).videos[0]
 
     sample_save_path = os.path.join(output_dir, f"i2v_sample_str{strength}.gif")
@@ -158,7 +149,7 @@ def main():
     args = parser.parse_args()
     
     cfg = OmegaConf.load(args.config)
-    pipeline, device = load_models(cfg) # 重用 inference_bokehK 的 load_models
+    pipeline, device = load_models(cfg)
     
     run_i2v_inference(
         pipeline, pipeline.tokenizer, pipeline.text_encoder, 
