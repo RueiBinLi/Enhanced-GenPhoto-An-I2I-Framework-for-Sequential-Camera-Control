@@ -68,32 +68,10 @@ chmod +x run_ablation.sh
 
 *   Use the validation set from the author to sample multiple camera settings
 *   We divide it to 4 stages. In each stage, we add a new camera setting to the image
-*   You must inference the images from stage 1 to 4
 
-```python
-# For stage 1
-python experiment_runner.py \
-  --stage 1 \
-  --output_dir "experiments_final" \
-  --seed 42
-
-# For stage 2
-python experiment_runner.py \
-  --stage 2 \
-  --output_dir "experiments_final" \
-  --seed 42
-
-# For stage 3
-python experiment_runner.py \
-  --stage 3 \
-  --output_dir "experiments_final" \
-  --seed 42
-
-# For stage 4
-python experiment_runner.py \
-  --stage 4 \
-  --output_dir "experiments_final" \
-  --seed 42
+```bash
+chmod +x run_experiment_runner.sh
+./run_experiment_runner.sh
 ```
 
 ## Evaluation
