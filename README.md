@@ -91,6 +91,7 @@ python evaluation_code/evaluate_DDIM_SDEdit.py \
 ```
 
 * Result
+![DDIM SDEdit Result](images/DDIM_SDEdit.png)
 
 ### Multiple Stages
 
@@ -102,3 +103,4 @@ python evaluation_code/evaluate_all.py \
 ```
 
 * Result
+![Baseline Result](images/baseline.png)
