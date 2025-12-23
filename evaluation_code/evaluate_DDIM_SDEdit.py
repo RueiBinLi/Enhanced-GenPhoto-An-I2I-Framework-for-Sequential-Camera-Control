@@ -493,5 +493,5 @@ python evaluation_code/evaluate_DDIM_SDEdit.py \
   --root_dir "Experiments/ablation_3" \
   --base_image "input_image/my_park_photo.jpg" \
   --prompt "A photo of a park with green grass and trees" \
-  --output_dir "Evaluation_Results_test"
+  --output_dir "Evaluation_Results"
 '''
