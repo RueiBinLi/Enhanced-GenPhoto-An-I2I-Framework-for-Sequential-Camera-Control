@@ -7,6 +7,8 @@ import glob
 import sys
 import torch
 import torch.nn.functional as F
+import json
+import csv
 from PIL import Image, ImageSequence
 
 sys.path.append(os.getcwd())
@@ -395,6 +397,48 @@ def print_unified_report(title, results_dict):
         print(f"{setting.capitalize():<10} | {sim_str:<15} | {lpips_str:<18} | {clip_str:<18} | {count}")
     print("="*80 + "\n")
 
+def save_results(output_dir, all_results):
+    os.makedirs(output_dir, exist_ok=True)
+
+    csv_path = os.path.join(output_dir, "metrics_summary.csv")
+    print(f"\n[Saving] Writing summary to: {csv_path}")
+
+    with open(csv_path, 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(['Method', 'Setting', 'Sim_Acc_Corr', 'LPIPS_LowIsGood', 'CLIP_HighIsGood', 'Sample_Count'])
+
+        for method, settings in all_results.items():
+            for setting_name, metrics in settings.items():
+                sim = np.mean(metrics['sim_acc']) if metrics['sim_acc'] else 0.0
+                lpips_score = np.nanmean(metrics['lpips']) if metrics['lpips'] else 0.0
+                clip_score = np.nanmean(metrics['clip']) if metrics['clip'] else 0.0
+                count = len(metrics['sim_acc'])
+
+                writer.writerow([
+                    method,
+                    setting_name,
+                    f"{sim:.5f}",
+                    f"{lpips_score:.5f}",
+                    f"{clip_score:.5f}",
+                    count
+                ])
+
+    class NumpyEncoder(json.JSONEncoder):
+        def default(self, obj):
+            if isinstance(obj, np.integer):
+                return int(obj)
+            if isinstance(obj, np.floating):
+                return float(obj)
+            if isinstance(obj, np.ndarray):
+                return obj.tolist()
+            return super(NumpyEncoder, self).default(obj)
+
+    json_path = os.path.join(output_dir, "metrics_raw.json")
+    print(f"[Saving] Writing raw data to: {json_path}")
+    
+    with open(json_path, 'w') as f:
+        json.dump(all_results, f, cls=NumpyEncoder, indent=4)
+
 
 def main():
     parser = argparse.ArgumentParser(description="Unified Evaluation (Simulation Acc, LPIPS, CLIP)")
@@ -438,6 +482,8 @@ def main():
 
     print_unified_report("FINAL REPORT: DDIM INVERSION", results["DDIM"])
     print_unified_report("FINAL REPORT: SDEdit", results["SDEdit"])
+
+    save_results(args.output_dir, results)
 
 if __name__ == "__main__":
     main()

@@ -7,6 +7,7 @@ import cv2
 import glob
 import sys
 import re
+import csv
 from PIL import Image, ImageSequence
 sys.path.append(os.getcwd())
 
@@ -451,18 +452,43 @@ def main():
             if res: results.append(res)
 
     if results:
+        os.makedirs(args.output_dir, exist_ok=True)
+
+        txt_path = os.path.join(args.output_dir, "final_summary.txt")
         print("\n" + "="*75)
         print(f"{'EXPERIMENT FOLDER':<45} | {'ACC':<7} | {'LPIPS':<7} | {'CLIP':<7}")
         print("="*75)
-        for r in results:
-            print(f"{r['name']:<45} | {r['acc']:.4f}  | {r['lpips']:.4f}  | {r['clip']:.4f}\n")
-        print("="*75)
         
-        os.makedirs(args.output_dir, exist_ok=True)
-        with open(os.path.join(args.output_dir, "final_summary.txt"), "w") as f:
-            f.write(f"{'EXPERIMENT FOLDER':<45} | {'ACC':<7} | {'LPIPS':<7} | {'CLIP':<7}\n")
+        with open(txt_path, "w") as f:
+            header = f"{'EXPERIMENT FOLDER':<45} | {'ACC':<7} | {'LPIPS':<7} | {'CLIP':<7}"
+            f.write(header + "\n")
+            f.write("-" * 75 + "\n")
+            
             for r in results:
+                print(f"{r['name']:<45} | {r['acc']:.4f}  | {r['lpips']:.4f}  | {r['clip']:.4f}")
                 f.write(f"{r['name']:<45} | {r['acc']:.4f}  | {r['lpips']:.4f}  | {r['clip']:.4f}\n")
+        
+        print("="*75)
+        print(f"[Saved] Text summary: {txt_path}")
+
+        csv_path = os.path.join(args.output_dir, "final_summary.csv")
+        with open(csv_path, "w", newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(['Experiment_Folder', 'Accuracy_Corr', 'LPIPS_Score', 'CLIP_Score'])
+            for r in results:
+                writer.writerow([r['name'], f"{r['acc']:.5f}", f"{r['lpips']:.5f}", f"{r['clip']:.5f}"])
+        print(f"[Saved] CSV summary:  {csv_path}")
+
+        class NumpyEncoder(json.JSONEncoder):
+            def default(self, obj):
+                if isinstance(obj, np.floating): return float(obj)
+                if isinstance(obj, np.integer): return int(obj)
+                return super(NumpyEncoder, self).default(obj)
+
+        json_path = os.path.join(args.output_dir, "final_summary.json")
+        with open(json_path, "w") as f:
+            json.dump(results, f, cls=NumpyEncoder, indent=4)
+        print(f"[Saved] JSON data:    {json_path}")
 
 if __name__ == "__main__":
     main()
@@ -471,5 +497,5 @@ if __name__ == "__main__":
 python evaluation_code/evaluate_all.py \
   --root_dir "experiments_final" \
   --data_root "." \
-  --output_dir "Evaluation_Results_test"
+  --output_dir "Evaluation_Results"
 '''
