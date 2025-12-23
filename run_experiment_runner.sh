@@ -40,5 +40,5 @@ python experiment_runner.py \
   --output_dir "experiments_final_2" \
   --seed 42
 
-mv -r experients_final_2/stage4_color_temperature experiments_final
-rm -r experients_final_2
+mv experients_final_2/stage4_color_temperature experiments_final
+rm -rf experients_final_2
