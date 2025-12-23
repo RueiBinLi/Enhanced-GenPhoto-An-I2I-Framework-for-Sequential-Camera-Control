@@ -302,6 +302,7 @@ def process_experiment_folder(folder_path, root_dir, data_root, evaluator, promp
     stage = 1
     if "stage2" in fname: stage = 2
     if "stage3" in fname: stage = 3
+    if "stage4" in fname: stage = 4
 
     print(f"\nEvaluating: {os.path.basename(folder_path)} (Type: {setting.upper()}, Stage: {stage})")
     
