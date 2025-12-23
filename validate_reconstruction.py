@@ -16,13 +16,11 @@ from diffusers import AutoencoderKL, DDIMScheduler
 from datetime import datetime
 from torch.utils.data import Dataset
 
-# 引入你的 Pipeline
 from genphoto.pipelines.pipeline_inversion import GenPhotoInversionPipeline
 from genphoto.models.unet import UNet3DConditionModelCameraCond
 from genphoto.models.camera_adaptor import CameraCameraEncoder
 from genphoto.utils.util import save_videos_grid
 
-# 嘗試引入 torchmetrics 用於 PSNR/SSIM，若無則使用簡易版計算
 try:
     from torchmetrics.functional import peak_signal_noise_ratio as psnr_func
     from torchmetrics.functional import structural_similarity_index_measure as ssim_func
@@ -34,9 +32,6 @@ except ImportError:
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ==========================================
-# 1. Embedding Logic (複製自各個 inference 腳本)
-# ==========================================
 def kelvin_to_rgb(kelvin):
     if torch.is_tensor(kelvin): kelvin = kelvin.cpu().item()
     temp = kelvin / 100.0
@@ -66,10 +61,10 @@ class Validation_Embedding(Dataset):
     def create_visual_embedding(self):
         f = len(self.val_list)
         h, w = self.sample_size
-        embedding = torch.zeros((f, 3, h, w), device='cpu') # Build on CPU first
+        embedding = torch.zeros((f, 3, h, w), device='cpu') 
 
         if self.setting_type == 'none':
-            pass # Return zeros
+            pass
 
         elif self.setting_type == 'bokeh':
             for i, val in enumerate(self.val_list):
@@ -105,7 +100,6 @@ class Validation_Embedding(Dataset):
 
         elif self.setting_type == 'color':
             for i, ct in enumerate(self.val_list):
-                # Check if input is raw Kelvin (>100) or normalized
                 kelvin = ct if ct > 100 else 2000 + (ct * (10000 - 2000))
                 rgb = kelvin_to_rgb(kelvin)
                 embedding[i] = torch.tensor(rgb).view(3, 1, 1)
@@ -113,7 +107,6 @@ class Validation_Embedding(Dataset):
         return embedding.to(self.device)
 
     def load(self):
-        # 1. Text Embedding
         prompts = []
         for v in self.val_list:
             if self.setting_type == 'none': prompt = ""
@@ -131,7 +124,6 @@ class Validation_Embedding(Dataset):
         differences = []
         for i in range(1, encoder_hidden_states.size(0)):
             differences.append((encoder_hidden_states[i] - encoder_hidden_states[i-1]).unsqueeze(0))
-        # Handle single frame case or end of sequence
         if encoder_hidden_states.size(0) > 1:
             differences.append((encoder_hidden_states[-1] - encoder_hidden_states[0]).unsqueeze(0))
             text_diff = torch.cat(differences, dim=0)
@@ -144,17 +136,11 @@ class Validation_Embedding(Dataset):
         ccl_embedding = text_diff.reshape(text_diff.size(0), self.sample_size[0], self.sample_size[1])
         ccl_embedding = ccl_embedding.unsqueeze(1).expand(-1, 3, -1, -1).to(self.device)
 
-        # 2. Visual Embedding
         vis_emb = self.create_visual_embedding()
         
         return torch.cat((vis_emb, ccl_embedding), dim=1)
 
-# ==========================================
-# 2. Main Validation Logic
-# ==========================================
 def calculate_metrics(pred, target, lpips_fn):
-    # Inputs: [1, 3, H, W], Range [0, 1]
-    # LPIPS expects [-1, 1]
     pred_norm = pred * 2.0 - 1.0
     target_norm = target * 2.0 - 1.0
     
@@ -164,10 +150,9 @@ def calculate_metrics(pred, target, lpips_fn):
         score_psnr = psnr_func(pred, target, data_range=1.0).item()
         score_ssim = ssim_func(pred, target, data_range=1.0).item()
     else:
-        # Simple Fallback
         mse = torch.mean((pred - target) ** 2)
         score_psnr = -10.0 * torch.log10(mse).item() if mse > 0 else 100.0
-        score_ssim = 0.0 # Skipping complex manual implementation
+        score_ssim = 0.0
         
     return score_lpips, score_psnr, score_ssim
 
@@ -182,23 +167,18 @@ def main():
     parser.add_argument("--output_dir", type=str, default="validation_results")
     args = parser.parse_args()
 
-    # Setup
     device = "cuda" if torch.cuda.is_available() else "cpu"
     cfg = OmegaConf.load(args.config)
     
-    # Initialize LPIPS (Author's method)
     lpips_loss = lpips.LPIPS(net='vgg').to(device)
 
-    # Load Model (Copy from your working inference script)
     from inference_multi_camera import load_models_inversion
     pipeline, _ = load_models_inversion(cfg)
     
-    # Prepare Input
     raw_image = Image.open(args.input_image).convert("RGB").resize((384, 256))
     gt_tensor = transforms.ToTensor()(raw_image).unsqueeze(0).to(device) # [1, 3, H, W]
     image_input = gt_tensor * 2.0 - 1.0
 
-    # Prepare Embedding (Static)
     video_len = 5
     val_list = [args.param_val] * video_len
     embed_obj = Validation_Embedding(args.setting_type, val_list, pipeline.tokenizer, pipeline.text_encoder, device)
@@ -215,7 +195,6 @@ def main():
     for step in args.steps_list:
         print(f"Testing Steps: {step}...")
         
-        # 1. Inversion
         inverted_latents = pipeline.invert(
             image=image_input,
             prompt=args.base_scene,
@@ -224,20 +203,18 @@ def main():
             video_length=video_len
         )
 
-        # 2. Reconstruction
         with torch.no_grad():
             output = pipeline(
                 prompt=args.base_scene,
-                camera_embedding=camera_embedding, # Same static embedding
+                camera_embedding=camera_embedding,
                 video_length=video_len,
                 height=256,
                 width=384,
                 num_inference_steps=step,
                 guidance_scale=1.0, 
                 latents=inverted_latents
-            ).videos # [1, 3, F, H, W]
+            ).videos
 
-        # 3. Metrics (Compare 1st frame with GT)
         rec_frame = output[0, :, 0, :, :].unsqueeze(0).to(device)
         l, p, s = calculate_metrics(rec_frame, gt_tensor, lpips_loss)
         
@@ -246,7 +223,6 @@ def main():
         
         save_videos_grid(output, os.path.join(save_dir, f"rec_step_{step}.gif"))
 
-    # Save Report
     df = pd.DataFrame(results)
     df.to_csv(os.path.join(save_dir, "metrics.csv"), index=False)
     print(f"Saved report to {save_dir}/metrics.csv")
