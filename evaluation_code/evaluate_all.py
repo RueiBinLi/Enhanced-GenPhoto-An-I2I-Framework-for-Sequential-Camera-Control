@@ -146,6 +146,37 @@ SIMULATORS = {
     'bokeh': simulate_bokeh
 }
 
+def load_all_prompts(data_root):
+    """
+    Loads all prompts from validation.json files into a dictionary.
+    Structure: { 'bokeh': {'000101': 'prompt'}, 'focal': {'000101': 'prompt'}, ... }
+    """
+    print("Loading prompts from validation files...")
+    prompts_db = {}
+    
+    for setting_key, info in VALIDATION_PATHS.items():
+        prompts_db[setting_key] = {}
+        for rel_path in info['paths']:
+            full_path = os.path.join(data_root, rel_path)
+            if os.path.exists(full_path):
+                try:
+                    with open(full_path, 'r') as f:
+                        data = json.load(f)
+                        for item in data:
+                            # Extract ID from base_image_path (e.g. "gallery/000101.jpg" -> "000101")
+                            base_path = item.get('base_image_path', '')
+                            img_id = os.path.splitext(os.path.basename(base_path))[0]
+                            caption = item.get('caption', '').strip()
+                            if img_id and caption:
+                                prompts_db[setting_key][img_id] = caption
+                except Exception as e:
+                    print(f"[Error] Failed to load JSON {full_path}: {e}")
+            else:
+                # Optional: print warning if file missing, but strictly VALIDATION_PATHS might vary by setup
+                pass
+                
+    return prompts_db
+
 class Evaluator:
     def __init__(self):
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -224,7 +255,7 @@ class Evaluator:
         if not prompt: return 0.0
         scores = []
         with torch.no_grad():
-            text_tok = clip.tokenize([prompt]).to(self.device)
+            text_tok = clip.tokenize([prompt], truncate=True).to(self.device)
             text_emb = self.clip_model.encode_text(text_tok)
             for f in sam_frames:
                 pil_img = Image.fromarray(f)
@@ -272,7 +303,7 @@ def find_matching_param_list(gif_name, setting):
             return None
     return None
 
-def process_experiment_folder(folder_path, root_dir, data_root, evaluator):
+def process_experiment_folder(folder_path, root_dir, data_root, evaluator, prompts_db):
     fname = os.path.basename(folder_path).lower()
     setting = next((s for s in ['color', 'shutter', 'focal', 'bokeh'] if s in fname), None)
     if not setting: return None
@@ -295,6 +326,7 @@ def process_experiment_folder(folder_path, root_dir, data_root, evaluator):
 
     for gif_path in found_gifs:
         gif_name = os.path.basename(gif_path)
+        # img_id example: "000101" from "000101_focal50.0..."
         img_id = gif_name.split('_')[0] 
 
         sim_params = find_matching_param_list(gif_name, setting)
@@ -364,7 +396,45 @@ def process_experiment_folder(folder_path, root_dir, data_root, evaluator):
         sam_frames = sam_frames[:min_len]
         ref_frames = ref_frames[:min_len]
 
-        prompt = "A photo of a park with green grass and trees"
+        # =========================================================
+        # FIND CORRECT PROMPT FROM VALIDATION.JSON
+        # =========================================================
+        # 1. Identify which setting is associated with the ID in the filename
+        # Structure is usually: ID_SettingVal_... (e.g., 000101_focal50.0...)
+        # We need to find the "source" setting (the first tag) to know which JSON to check.
+        
+        prompt = "A photo" # fallback
+        source_setting = None
+        
+        # Tokenize filename (remove extension, split by _)
+        name_parts = os.path.splitext(gif_name)[0].split('_')
+        
+        # Look for the first token after ID that starts with a known setting key
+        # Known keys: bokeh, focal, shutter, color
+        known_keys = ['bokeh', 'focal', 'shutter', 'color']
+        
+        # Start looking from index 1 (index 0 is img_id)
+        if len(name_parts) > 1:
+            for part in name_parts[1:]:
+                for k in known_keys:
+                    if part.startswith(k):
+                        source_setting = k
+                        break
+                if source_setting: break
+        
+        # If source setting found, look up ID in that setting's prompt db
+        if source_setting and source_setting in prompts_db:
+            if img_id in prompts_db[source_setting]:
+                prompt = prompts_db[source_setting][img_id]
+        
+        # If not found via token parsing, fallback to checking all DBs for the ID
+        if prompt == "A photo":
+            for k in known_keys:
+                if k in prompts_db and img_id in prompts_db[k]:
+                    prompt = prompts_db[k][img_id]
+                    break
+        
+        # =========================================================
         
         acc = evaluator.calc_accuracy(ref_frames, sam_frames, setting)
         lpips_score = evaluator.calc_lpips(ref_frames, sam_frames)
@@ -392,12 +462,15 @@ def main():
     parser.add_argument("--output_dir", default="Evaluation_Results")
     args = parser.parse_args()
 
+    # Pre-load all prompts once
+    prompts_db = load_all_prompts(args.data_root)
+
     evaluator = Evaluator()
     results = []
 
     for entry in sorted(os.scandir(args.root_dir), key=lambda x: x.name):
         if entry.is_dir():
-            res = process_experiment_folder(entry.path, args.root_dir, args.data_root, evaluator)
+            res = process_experiment_folder(entry.path, args.root_dir, args.data_root, evaluator, prompts_db)
             if res: results.append(res)
 
     if results:
