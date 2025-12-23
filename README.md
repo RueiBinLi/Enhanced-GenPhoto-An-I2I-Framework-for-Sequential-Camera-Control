@@ -33,7 +33,9 @@ cd generative_photography
 git lfs install
 git lfs pull
 cd ..
-mv generative_photography models
+rm -rf models/stable-diffusion-v1-5 models/weights
+mv generative_photography/* models/
+rm -rf generative_photography
 ```
 *   Under I2I-generative-photography - Download dataset
 ```bash

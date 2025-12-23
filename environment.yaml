@@ -1,7 +1,8 @@
-name: genphoto
+name: genphoto1
 channels:
   - pytorch
   - nvidia
+  - conda-forge
 dependencies:
   - python=3.10
   - pytorch=2.1.1
@@ -10,13 +11,15 @@ dependencies:
   - pytorch-cuda=12.1
   - pip
   - pip:
-    - diffusers==0.24.0
+    - diffusers==0.25.0
     - xformers==0.0.23
     - imageio==2.36.0
     - imageio[ffmpeg]
     - opencv-python
     - transformers==4.45.0
     - accelerate==0.26.0
+    - huggingface-hub==0.25.2
+    - numpy==1.26.4
     - gdown
     - einops
     - decord
@@ -26,4 +29,5 @@ dependencies:
     - wandb
     - triton
     - termcolor
+    - lpips
     - git+https://github.com/openai/CLIP.git
