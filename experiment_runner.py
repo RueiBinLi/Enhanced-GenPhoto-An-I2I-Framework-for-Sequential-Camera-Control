@@ -368,9 +368,6 @@ class ExperimentRunner:
         return output_video
 
     def run_stage_1(self):
-        """
-        Stage 1: Generates BOTH Baseline (T2I) and Ours (I2I) for ALL settings.
-        """
         logger.info("=== Starting Stage 1 (Generating All Baselines & Ours) ===")
         
         for setting_name, info in SETTINGS_CONFIG.items():
@@ -426,7 +423,7 @@ class ExperimentRunner:
                     }, out_ours, param_list, setting_type, base_name)
                     meta_ours.extend(recs_o)
                 else:
-                    logger.warning(f"⚠️ Skipping Stage 1 I2I: Input image not found at '{full_img_path}'")
+                    logger.warning(f"Skipping Stage 1 I2I: Input image not found at '{full_img_path}'")
 
             with open(os.path.join(out_baseline, "metadata.json"), "w") as f: json.dump(meta_baseline, f, indent=4)
             with open(os.path.join(out_ours, "metadata.json"), "w") as f: json.dump(meta_ours, f, indent=4)
@@ -468,7 +465,7 @@ class ExperimentRunner:
                 input_dir_name = f"stage{stage_num-1}_{prev_setting_name}"
 
             input_path = os.path.join(self.args.output_dir, input_dir_name)
-            logger.info(f"🔗 Chain [{chain_root}] | Processing '{current_setting_name}' using input from: {input_dir_name}")
+            logger.info(f"Chain [{chain_root}] | Processing '{current_setting_name}' using input from: {input_dir_name}")
 
             pool = self.build_image_pool_strict(input_path)
             if not pool:
