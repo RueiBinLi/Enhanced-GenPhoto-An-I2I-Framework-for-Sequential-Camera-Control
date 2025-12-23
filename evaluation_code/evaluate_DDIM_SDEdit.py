@@ -69,7 +69,6 @@ class CLIPEvaluator:
         self.model, self.preprocess = clip.load("ViT-B/32", device=self.device)
         self.model.eval()
         
-        # Pre-encode text
         print(f"Encoding Prompt: '{prompt_text}'")
         self.text_features = None
         if prompt_text:

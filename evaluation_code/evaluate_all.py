@@ -22,9 +22,6 @@ except ImportError:
     print("\n[ERROR] Missing libraries. Install: pip install lpips git+https://github.com/openai/CLIP.git")
     sys.exit(1)
 
-# The script will look at the GIF filename, find the first value (e.g. 14.0),
-# and pick the list below that starts with 14.0.
-
 MANUAL_PARAMS = {
     'bokeh': [
         [1.0, 5.0, 10.0, 15.0, 20.0], 
@@ -163,7 +160,6 @@ def load_all_prompts(data_root):
                     with open(full_path, 'r') as f:
                         data = json.load(f)
                         for item in data:
-                            # Extract ID from base_image_path (e.g. "gallery/000101.jpg" -> "000101")
                             base_path = item.get('base_image_path', '')
                             img_id = os.path.splitext(os.path.basename(base_path))[0]
                             caption = item.get('caption', '').strip()
@@ -172,7 +168,6 @@ def load_all_prompts(data_root):
                 except Exception as e:
                     print(f"[Error] Failed to load JSON {full_path}: {e}")
             else:
-                # Optional: print warning if file missing, but strictly VALIDATION_PATHS might vary by setup
                 pass
                 
     return prompts_db
@@ -235,18 +230,14 @@ class Evaluator:
         if len(sam_frames) < 2: return 0.0
         scores = []
         with torch.no_grad():
-            # Process Frame 0
             prev_t = torch.tensor(sam_frames[0].astype(np.float32)/255*2-1).permute(2,0,1).unsqueeze(0).to(self.device)
             
             for i in range(1, len(sam_frames)):
-                # Process Frame i
                 curr_t = torch.tensor(sam_frames[i].astype(np.float32)/255*2-1).permute(2,0,1).unsqueeze(0).to(self.device)
                 
-                # Calculate Distance (Frame i-1 vs Frame i)
                 dist = self.lpips(prev_t, curr_t).item()
                 scores.append(dist)
                 
-                # Update previous
                 prev_t = curr_t
                 
         return np.mean(scores) if scores else 0.0
@@ -326,7 +317,6 @@ def process_experiment_folder(folder_path, root_dir, data_root, evaluator, promp
 
     for gif_path in found_gifs:
         gif_name = os.path.basename(gif_path)
-        # img_id example: "000101" from "000101_focal50.0..."
         img_id = gif_name.split('_')[0] 
 
         sim_params = find_matching_param_list(gif_name, setting)
@@ -396,24 +386,14 @@ def process_experiment_folder(folder_path, root_dir, data_root, evaluator, promp
         sam_frames = sam_frames[:min_len]
         ref_frames = ref_frames[:min_len]
 
-        # =========================================================
-        # FIND CORRECT PROMPT FROM VALIDATION.JSON
-        # =========================================================
-        # 1. Identify which setting is associated with the ID in the filename
-        # Structure is usually: ID_SettingVal_... (e.g., 000101_focal50.0...)
-        # We need to find the "source" setting (the first tag) to know which JSON to check.
         
-        prompt = "A photo" # fallback
+        prompt = "A photo" # for initial
         source_setting = None
         
-        # Tokenize filename (remove extension, split by _)
         name_parts = os.path.splitext(gif_name)[0].split('_')
         
-        # Look for the first token after ID that starts with a known setting key
-        # Known keys: bokeh, focal, shutter, color
         known_keys = ['bokeh', 'focal', 'shutter', 'color']
         
-        # Start looking from index 1 (index 0 is img_id)
         if len(name_parts) > 1:
             for part in name_parts[1:]:
                 for k in known_keys:
@@ -422,19 +402,16 @@ def process_experiment_folder(folder_path, root_dir, data_root, evaluator, promp
                         break
                 if source_setting: break
         
-        # If source setting found, look up ID in that setting's prompt db
         if source_setting and source_setting in prompts_db:
             if img_id in prompts_db[source_setting]:
                 prompt = prompts_db[source_setting][img_id]
         
-        # If not found via token parsing, fallback to checking all DBs for the ID
         if prompt == "A photo":
             for k in known_keys:
                 if k in prompts_db and img_id in prompts_db[k]:
                     prompt = prompts_db[k][img_id]
                     break
         
-        # =========================================================
         
         acc = evaluator.calc_accuracy(ref_frames, sam_frames, setting)
         lpips_score = evaluator.calc_lpips(ref_frames, sam_frames)
@@ -462,7 +439,6 @@ def main():
     parser.add_argument("--output_dir", default="Evaluation_Results")
     args = parser.parse_args()
 
-    # Pre-load all prompts once
     prompts_db = load_all_prompts(args.data_root)
 
     evaluator = Evaluator()
