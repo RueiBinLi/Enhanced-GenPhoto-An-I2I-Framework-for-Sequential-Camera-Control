@@ -32,6 +32,8 @@ GIT_LFS_SKIP_SMUDGE=1 git clone https://huggingface.co/pandaphd/generative_photo
 cd generative_photography
 git lfs install
 git lfs pull
+cd ..
+mv generative_photography models
 ```
 *   Under I2I-generative-photography - Download dataset
 ```bash
