@@ -43,6 +43,8 @@ git lfs pull
 
 ## Inference
 
+### I2I Method Comparison
+
 *   Using I2I method (**DDIM inversion** & **SDEdit**) to inference multiple camera settings
 *   Input Image
   
@@ -53,3 +55,70 @@ git lfs pull
 chmod +x run_ablation.sh
 ./run_ablation.sh
 ```
+
+*   Result of DDIM Inversion
+
+![DDIM result](images/stage1_bokeh_init_DDIM.gif)
+
+*   Result of SDEdit
+
+![SDEdit result](images/stage1_bokeh_init_SDEdit.gif)
+
+### Multiple Stages
+
+*   Use the validation set from the author to sample multiple camera settings
+*   We divide it to 4 stages. In each stage, we add a new camera setting to the image
+*   You must inference the images from stage 1 to 4
+
+```python
+# For stage 1
+python experiment_runner.py \
+  --stage 1 \
+  --output_dir "experiments_final" \
+  --seed 42
+
+# For stage 2
+python experiment_runner.py \
+  --stage 2 \
+  --output_dir "experiments_final" \
+  --seed 42
+
+# For stage 3
+python experiment_runner.py \
+  --stage 3 \
+  --output_dir "experiments_final" \
+  --seed 42
+
+# For stage 4
+python experiment_runner.py \
+  --stage 4 \
+  --output_dir "experiments_final" \
+  --seed 42
+```
+
+## Evaluation
+
+*   We use Correlation Coefficient, LPIPS and CLIP to evaluate.
+
+### I2I Method Comparison
+
+```bash
+python evaluation_code/evaluate_DDIM_SDEdit.py \
+  --root_dir "Experiments/ablation_3" \
+  --base_image "input_image/my_park_photo.jpg" \
+  --prompt "A photo of a park with green grass and trees" \
+  --output_dir "Evaluation_Results_test"
+```
+
+* Result
+
+### Multiple Stages
+
+```bash
+python evaluation_code/evaluate_all.py \
+  --root_dir "experiments_final" \
+  --data_root "." \
+  --output_dir "Evaluation_Results_test"
+```
+
+* Result
