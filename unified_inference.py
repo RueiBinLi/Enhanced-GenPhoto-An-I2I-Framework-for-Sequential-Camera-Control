@@ -24,37 +24,29 @@ from genphoto.utils.util import save_videos_grid
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ==========================================
-# 1. Embedding Helper Functions
-# ==========================================
 
 def crop_focal_length(img_pil, base_focal_length, target_focal_length, target_height, target_width, sensor_height=24.0, sensor_width=36.0):
     width, height = img_pil.size
 
-    # Calculate base and target FOV
     base_x_fov = 2.0 * math.atan(sensor_width * 0.5 / base_focal_length)
     base_y_fov = 2.0 * math.atan(sensor_height * 0.5 / base_focal_length)
 
     target_x_fov = 2.0 * math.atan(sensor_width * 0.5 / target_focal_length)
     target_y_fov = 2.0 * math.atan(sensor_height * 0.5 / target_focal_length)
 
-    # Calculate crop ratio
     crop_ratio = min(target_x_fov / base_x_fov, target_y_fov / base_y_fov)
 
     crop_width = int(round(crop_ratio * width))
     crop_height = int(round(crop_ratio * height))
 
-    # Ensure crop dimensions are within valid bounds
     crop_width = max(1, min(width, crop_width))
     crop_height = max(1, min(height, crop_height))
 
-    # Crop coordinates
     left = int((width - crop_width) / 2)
     top = int((height - crop_height) / 2)
     right = int((width + crop_width) / 2)
     bottom = int((height + crop_height) / 2)
 
-    # Crop and Resize
     zoomed_img = img_pil.crop((left, top, right, bottom))
     resized_img = zoomed_img.resize((target_width, target_height), Image.Resampling.LANCZOS)
     
@@ -147,9 +139,6 @@ def create_color_temperature_embedding(color_temperature_values, target_height, 
     
     for val_tensor in iter_values:
         val = val_tensor.item()
-        # Replicating the logic from training/original inference which treats input as normalized
-        # even if it is raw Kelvin. This results in a specific embedding (likely solid blue for raw Kelvin)
-        # that the model learned to expect.
         kelvin = min_color_temperature + (val * (max_color_temperature - min_color_temperature))
         
         rgb = kelvin_to_rgb(kelvin)
@@ -168,9 +157,6 @@ def create_shutter_speed_embedding(shutter_speed_values, target_height, target_w
     scales = scales.unsqueeze(1).unsqueeze(2).unsqueeze(3).expand(f, 3, target_height, target_width)
     return scales
 
-# ==========================================
-# 2. Universal Camera Embedding Class
-# ==========================================
 
 class Universal_Camera_Embedding(Dataset):
     def __init__(self, setting_type, values, tokenizer, text_encoder, device, sample_size=[256, 384]):
@@ -239,9 +225,6 @@ class Universal_Camera_Embedding(Dataset):
         camera_embedding = torch.cat((vis_emb, ccl_embedding), dim=1)
         return camera_embedding
 
-# ==========================================
-# 3. Model Loading (Single Model)
-# ==========================================
 
 def load_model_for_setting(setting_type, method):
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -255,7 +238,6 @@ def load_model_for_setting(setting_type, method):
     
     cfg = OmegaConf.load(config_map[setting_type])
     
-    # 1. Load VAE, Tokenizer, Text Encoder
     vae = AutoencoderKL.from_pretrained(cfg.pretrained_model_path, subfolder="vae").to(device)
     vae.requires_grad_(False)
     tokenizer = CLIPTokenizer.from_pretrained(cfg.pretrained_model_path, subfolder="tokenizer")
@@ -263,7 +245,6 @@ def load_model_for_setting(setting_type, method):
     text_encoder.requires_grad_(False)
     noise_scheduler = DDIMScheduler(**OmegaConf.to_container(cfg.noise_scheduler_kwargs))
 
-    # 2. Load UNet
     unet = UNet3DConditionModelCameraCond.from_pretrained_2d(
         cfg.pretrained_model_path,
         subfolder=cfg.unet_subfolder,
@@ -271,7 +252,6 @@ def load_model_for_setting(setting_type, method):
     ).to(device)
     unet.requires_grad_(False)
 
-    # 3. Load Camera Adaptor
     camera_encoder = CameraCameraEncoder(**cfg.camera_encoder_kwargs).to(device)
     camera_encoder.requires_grad_(False)
     camera_adaptor = CameraAdaptor(unet, camera_encoder)
@@ -287,7 +267,6 @@ def load_model_for_setting(setting_type, method):
         **cfg.attention_processor_kwargs
     )
 
-    # 4. Load Weights
     if cfg.lora_ckpt is not None:
         logger.info(f"Loading LoRA from {cfg.lora_ckpt}")
         lora_checkpoints = torch.load(cfg.lora_ckpt, map_location=unet.device)
@@ -340,39 +319,28 @@ def preprocess_image_pil(pil_image, height, width):
     ])
     return transform(pil_image).unsqueeze(0)
 
-# ==========================================
-# 4. Inference Logic (Tree Expansion)
-# ==========================================
 
 def run_inference(multi_params, input_image_path, strength, output_dir, base_scene, method):
-    # multi_params: {'bokeh': [1, 5], 'color': [3000, 5000]}
     
     height = 256
     width = 384
-    # Separate output directory by method
     output_dir = os.path.join(output_dir, method)
     os.makedirs(output_dir, exist_ok=True)
     
-    # Initialize Input Pool
-    # Each item: {'image': PIL.Image, 'id': str}
     init_pil = Image.open(input_image_path).convert("RGB")
     current_inputs = [{'image': init_pil, 'id': 'init'}]
     
-    # Iterate through each setting sequentially
-    for stage_idx, (setting_type, values) in enumerate(multi_params.items()):
+    for stage_idx, (setting_type, values) in enumerate(multi_params.items())
         logger.info(f"==========================================")
         logger.info(f"Processing Stage {stage_idx+1}: {setting_type} (Values: {values})")
         logger.info(f"Method: {method}")
         logger.info(f"Input Pool Size: {len(current_inputs)}")
         logger.info(f"==========================================")
         
-        # 1. Load Model for this specific setting
         pipeline, device = load_model_for_setting(setting_type, method)
         
-        # 2. Prepare Values
         val_tensor = torch.tensor(values).unsqueeze(1)
         
-        # 3. Prepare Embedding (Shared for all inputs in this stage)
         embed_obj = Universal_Camera_Embedding(
             setting_type, val_tensor, pipeline.tokenizer, pipeline.text_encoder, device, sample_size=[height, width]
         )
@@ -381,18 +349,15 @@ def run_inference(multi_params, input_image_path, strength, output_dir, base_sce
         
         next_stage_inputs = []
         
-        # 4. Process each input image
         for input_idx, item in enumerate(current_inputs):
             input_pil = item['image']
             input_id = item['id']
             
             logger.info(f"  > Processing Input {input_idx+1}/{len(current_inputs)} (ID: {input_id})...")
             
-            # Preprocess Image
             init_tensor = preprocess_image_pil(input_pil, height, width).to(device)
             
             if method == 'SDEdit':
-                # Run Pipeline (I2V / SDEdit)
                 with torch.no_grad():
                     output = pipeline(
                         prompt=base_scene,
@@ -407,25 +372,20 @@ def run_inference(multi_params, input_image_path, strength, output_dir, base_sce
                     )
             elif method == 'DDIM_Inversion':
                 if setting_type == 'focal':
-                    # --- Focal Path: Pre-warped Video + Target Embedding ---
                     video_frames = []
                     base_fl = 24.0
                     for val in values:
                         warped_img = crop_focal_length(input_pil, base_fl, val, height, width)
                         video_frames.append(warped_img)
                     
-                    # Stack to [1, C, F, H, W]
                     video_tensor = torch.stack([preprocess_image_pil(img, height, width).squeeze(0) for img in video_frames])
                     inference_image_input = rearrange(video_tensor, "f c h w -> 1 c f h w").to(device)
                     
-                    # Embedding: Use Target Values (camera_embedding is already computed as Target)
                     inference_embed_input = camera_embedding
                     
                 else:
-                    # --- Others Path: Static Image + Source Embedding ---
                     inference_image_input = init_tensor # [1, C, H, W]
                     
-                    # Embedding: Use Source Values (Initial Value Repeated)
                     source_val_item = values[0]
                     source_vals = torch.tensor([source_val_item] * len(values), dtype=torch.float32)
                     
@@ -435,7 +395,6 @@ def run_inference(multi_params, input_image_path, strength, output_dir, base_sce
                     source_embed = source_embed_obj.load()
                     inference_embed_input = rearrange(source_embed.unsqueeze(0), "b f c h w -> b c f h w")
 
-                # Run Inversion
                 logger.info(f"    Running Inversion ({setting_type})...")
                 inverted_latents = pipeline.invert(
                     image=inference_image_input,
@@ -445,7 +404,6 @@ def run_inference(multi_params, input_image_path, strength, output_dir, base_sce
                     video_length=len(values)
                 )
                 
-                # Run Generation
                 guidance_scale = 2.0 if setting_type == 'color' else 1.5
                 logger.info(f"    Running Generation (Guidance: {guidance_scale})...")
                 
@@ -461,11 +419,9 @@ def run_inference(multi_params, input_image_path, strength, output_dir, base_sce
                         latents=inverted_latents
                     )
 
-            # Extract Video
             video_tensor = output.videos.squeeze(0) # [3, F, H, W]
             video_tensor = video_tensor.permute(1, 0, 2, 3) # [F, 3, H, W]
             
-            # Convert to PIL frames
             frames = []
             for i in range(video_tensor.shape[0]):
                 frame_tensor = video_tensor[i]
@@ -473,10 +429,6 @@ def run_inference(multi_params, input_image_path, strength, output_dir, base_sce
                 ndarr = (ndarr * 255).astype(np.uint8)
                 frames.append(Image.fromarray(ndarr))
             
-            # Save GIF for this input
-            # Naming: stage{N}_{setting}_{prev_id}.gif
-            # If prev_id is 'init', name is stage1_bokeh_init.gif
-            # If prev_id is 'init_0', name is stage2_color_init_0.gif
             save_name = f"stage{stage_idx+1}_{setting_type}_{input_id}.gif"
             save_path = os.path.join(output_dir, save_name)
             
@@ -489,15 +441,12 @@ def run_inference(multi_params, input_image_path, strength, output_dir, base_sce
             )
             logger.info(f"    Saved result to {save_path}")
             
-            # Collect frames for next stage
             for f_idx, frame in enumerate(frames):
                 next_id = f"{input_id}_{f_idx}" if input_id != 'init' else f"{f_idx}"
                 next_stage_inputs.append({'image': frame, 'id': next_id})
         
-        # Update input pool for next stage
         current_inputs = next_stage_inputs
         
-        # Cleanup Model
         del pipeline
         gc.collect()
         torch.cuda.empty_cache()
@@ -505,9 +454,6 @@ def run_inference(multi_params, input_image_path, strength, output_dir, base_sce
 
     logger.info("All stages completed.")
 
-# ==========================================
-# 5. Main Function
-# ==========================================
 
 def main():
     parser = argparse.ArgumentParser()
