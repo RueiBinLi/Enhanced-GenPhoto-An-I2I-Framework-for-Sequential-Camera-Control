@@ -245,10 +245,6 @@ METRIC_FUNCS = {
     'bokeh': metric_bokeh_acc
 }
 
-# =============================================================================
-# PART 5: EXECUTION LOGIC
-# =============================================================================
-
 def generate_depth_map(image_input, output_path, cache_dir="./model_cache"):
     if os.path.exists(output_path): return output_path
     print(f"  > Generating depth map: {output_path}...")
