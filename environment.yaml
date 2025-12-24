@@ -1,4 +1,4 @@
-name: genphoto1
+name: genphoto
 channels:
   - pytorch
   - nvidia
