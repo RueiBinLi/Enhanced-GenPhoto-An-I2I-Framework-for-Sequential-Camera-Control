@@ -23,7 +23,6 @@ The original github page is https://github.com/pandayuanyu/generative-photograph
 ```bash
 conda env create -f environment.yaml
 conda activate genphoto
-pip install cupy
 ```
 
 ### 2. Prepare Models, Weights and Datasets
