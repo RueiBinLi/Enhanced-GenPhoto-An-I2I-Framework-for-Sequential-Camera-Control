@@ -10,6 +10,8 @@ The original github page is https://github.com/pandayuanyu/generative-photograph
 ## [[Paper](https://arxiv.org/abs/2412.02168)] [[Project Page](https://yuyuan-space.github.io/GenerativePhotography/)] [[Dataset](https://huggingface.co/datasets/pandaphd/camera_settings)] [[Weights](https://huggingface.co/pandaphd/generative_photography)] [[HF Demo](https://huggingface.co/spaces/pandaphd/generative_photography)]
 
 ![example](images/example.png)
+![mountatin](images/mountain.gif)
+![plant](images/plant.gif)
 
 
 ## Configurations
@@ -49,6 +51,31 @@ git lfs pull
 ```
 
 ## Inference
+
+### Inference All In One
+* You can inference your own gif.
+* The input order of camera setting will decide the order of genertation
+```python
+python inference.py   \
+        --prompt "A blue sky with mountains."   \
+        --color "[5455.0, 5155.0, 5555.0, 6555.0, 7555.0]" \
+        --bokehK "[2.44, 8.3, 10.1, 17.2, 24.0]" \
+        --shutter "[0.1, 0.3, 0.52, 0.7, 0.8]" \
+        --focal "[25.0, 35.0, 45.0, 55.0, 65.0]" \
+        --output_dir "inference_output" \
+        --seed 42
+
+python inference.py   \
+    --prompt "A variety of potted plants are displayed on a windowsill, \
+        with some of them placed in yellow and white bowls. The plants \
+        are arranged in a visually appealing manner, creating a pleasant atmosphere in the room."   \
+    --bokehK "[2.44, 8.3, 10.1, 17.2, 24.0]" \
+    --shutter "[0.1, 0.3, 0.52, 0.7, 0.8]" \
+    --color "[5455.0, 5155.0, 5555.0, 6555.0, 7555.0]" \
+    --focal "[25.0, 35.0, 45.0, 55.0, 65.0]" \
+    --output_dir "inference_output" \
+    --seed 42
+```
 
 ### I2I Method Comparison
 
