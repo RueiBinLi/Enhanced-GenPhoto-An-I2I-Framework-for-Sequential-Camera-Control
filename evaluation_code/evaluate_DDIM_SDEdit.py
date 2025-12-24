@@ -10,8 +10,7 @@ import torch.nn.functional as F
 import json
 import csv
 from PIL import Image, ImageSequence
-
-sys.path.append(os.getcwd())
+sys.path.append('genphoto/data/BokehMe/')
 
 VALS_SETTINGS = {
     'color':  [5455.0, 5155.0, 5555.0, 6555.0, 7555.0],
@@ -156,7 +155,7 @@ def crop_focal_length(image_np, focal_length, **kwargs):
 
 def simulate_bokeh(image_np, K, depth_map_path=None, **kwargs):
     try:
-        from genphoto.data.BokehMe.classical_renderer.scatter import ModuleRenderScatter
+        from classical_renderer.scatter import ModuleRenderScatter
     except ImportError:
         print(f"  [Warn] genphoto/Bokeh renderer not found. Skipping Bokeh sim.")
         return image_np

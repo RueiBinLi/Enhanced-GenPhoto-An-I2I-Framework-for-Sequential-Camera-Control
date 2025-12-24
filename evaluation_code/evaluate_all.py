@@ -9,7 +9,7 @@ import sys
 import re
 import csv
 from PIL import Image, ImageSequence
-sys.path.append(os.getcwd())
+sys.path.append('genphoto/data/BokehMe/')
 
 if os.path.exists("clip.py"):
     print("\n[WARNING] Found 'clip.py' in the current directory! Please rename it.\n")
@@ -112,7 +112,7 @@ def crop_focal_length(image_np, focal, **kwargs):
 def simulate_bokeh(image_np, k_val, depth_map=None, **kwargs):
     if depth_map is None: return image_np
     try:
-        from genphoto.data.BokehMe.classical_renderer.scatter import ModuleRenderScatter
+        from classical_renderer.scatter import ModuleRenderScatter
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         
         if isinstance(depth_map, str):
