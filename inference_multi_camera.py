@@ -453,7 +453,6 @@ def main():
             latents=inverted_latents 
         ).videos[0]
 
-    # 5. 存檔 (保持不變)
     timestamp = datetime.now().strftime("%H%M%S")
     save_dir = os.path.join(args.output_dir, args.setting_type)
     os.makedirs(save_dir, exist_ok=True)
