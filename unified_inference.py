@@ -330,7 +330,7 @@ def run_inference(multi_params, input_image_path, strength, output_dir, base_sce
     init_pil = Image.open(input_image_path).convert("RGB")
     current_inputs = [{'image': init_pil, 'id': 'init'}]
     
-    for stage_idx, (setting_type, values) in enumerate(multi_params.items())
+    for stage_idx, (setting_type, values) in enumerate(multi_params.items()):
         logger.info(f"==========================================")
         logger.info(f"Processing Stage {stage_idx+1}: {setting_type} (Values: {values})")
         logger.info(f"Method: {method}")
