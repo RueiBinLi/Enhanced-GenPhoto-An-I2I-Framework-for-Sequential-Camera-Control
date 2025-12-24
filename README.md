@@ -55,6 +55,7 @@ git lfs pull
 * You can inference your own gif.
 * The input order of camera setting will decide the order of genertation
 ```python
+# inference one
 python inference.py   \
         --prompt "A blue sky with mountains."   \
         --color "[5455.0, 5155.0, 5555.0, 6555.0, 7555.0]" \
@@ -64,6 +65,7 @@ python inference.py   \
         --output_dir "inference_output" \
         --seed 42
 
+# inference two
 python inference.py   \
     --prompt "A variety of potted plants are displayed on a windowsill, \
         with some of them placed in yellow and white bowls. The plants \
