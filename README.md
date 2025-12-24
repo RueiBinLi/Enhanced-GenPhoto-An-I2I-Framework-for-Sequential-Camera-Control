@@ -87,8 +87,8 @@ python inference.py   \
 
 *   Inference by DDIM inversion & SDEdit automatically
 ```bash
-chmod +x run_ablation.sh
-./run_ablation.sh
+chmod +x run_ablation_3params.sh
+./run_ablation_3params.sh
 ```
 
 *   Result of DDIM Inversion
@@ -117,7 +117,7 @@ chmod +x run_experiment_runner.sh
 
 ```bash
 python evaluation_code/evaluate_DDIM_SDEdit.py \
-  --root_dir "Experiments/ablation_3" \
+  --root_dir "outputs/ablation_3params" \
   --base_image "input_image/my_park_photo.jpg" \
   --prompt "A photo of a park with green grass and trees" \
   --output_dir "Evaluation_Results"
