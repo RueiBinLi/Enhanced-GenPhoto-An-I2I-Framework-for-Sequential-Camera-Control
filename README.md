@@ -9,6 +9,8 @@ The original github page is https://github.com/pandayuanyu/generative-photograph
 
 ## [[Paper](https://arxiv.org/abs/2412.02168)] [[Project Page](https://yuyuan-space.github.io/GenerativePhotography/)] [[Dataset](https://huggingface.co/datasets/pandaphd/camera_settings)] [[Weights](https://huggingface.co/pandaphd/generative_photography)] [[HF Demo](https://huggingface.co/spaces/pandaphd/generative_photography)]
 
+![example](images/example.png)
+
 
 ## Configurations
 
@@ -19,6 +21,7 @@ The original github page is https://github.com/pandayuanyu/generative-photograph
 ```bash
 conda env create -f environment.yaml
 conda activate genphoto
+pip install cupy
 ```
 
 ### 2. Prepare Models, Weights and Datasets
@@ -89,7 +92,7 @@ python evaluation_code/evaluate_DDIM_SDEdit.py \
   --root_dir "Experiments/ablation_3" \
   --base_image "input_image/my_park_photo.jpg" \
   --prompt "A photo of a park with green grass and trees" \
-  --output_dir "Evaluation_Results_test"
+  --output_dir "Evaluation_Results"
 ```
 
 * Result
@@ -101,7 +104,7 @@ python evaluation_code/evaluate_DDIM_SDEdit.py \
 python evaluation_code/evaluate_all.py \
   --root_dir "experiments_final" \
   --data_root "." \
-  --output_dir "Evaluation_Results_test"
+  --output_dir "Evaluation_Results"
 ```
 
 * Result
