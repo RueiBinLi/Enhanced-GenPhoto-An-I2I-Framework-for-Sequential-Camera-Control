@@ -247,10 +247,7 @@ def load_models_inversion(cfg, device):
     return pipeline
 
 CHAIN_CONFIGS = {
-    'bokehK':            ['bokehK', 'color_temperature', 'shutter_speed', 'focal_length'],
     'shutter_speed':     ['shutter_speed', 'focal_length', 'bokehK', 'color_temperature'],
-    'focal_length':      ['focal_length', 'bokehK', 'color_temperature', 'shutter_speed'],
-    'color_temperature': ['color_temperature', 'shutter_speed', 'focal_length', 'bokehK']
 }
 
 class ExperimentRunner:
@@ -371,65 +368,66 @@ class ExperimentRunner:
         logger.info("=== Starting Stage 1 (Generating All Baselines & Ours) ===")
         
         for setting_name, info in SETTINGS_CONFIG.items():
-            logger.info(f"--- Processing Setting: {setting_name} ---")
-            
-            cfg = OmegaConf.load(info['config'])
-            pipeline = load_models_inversion(cfg, self.device)
-            with open(info['json'], 'r') as f: data = json.load(f)
-
-            out_baseline = os.path.join(self.args.output_dir, f"stage1_baseline_{setting_name}")
-            out_ours = os.path.join(self.args.output_dir, f"stage1_ours_{setting_name}")
-            os.makedirs(out_baseline, exist_ok=True)
-            os.makedirs(out_ours, exist_ok=True)
-            
-            meta_baseline, meta_ours = [], []
-            setting_type = info['type_key']
-            
-            image_root = os.path.join("camera_settings", f"camera_{setting_name}")
-
-            for item in tqdm(data, desc=f"Stg1 {setting_name}"):
-                base_img_path = item.get('base_image_path')
-                caption = item.get('caption')
-                try: param_list = json.loads(item[info['list_key']])
-                except: continue
+            if setting_name == 'shutter_speed':
+                logger.info(f"--- Processing Setting: {setting_name} ---")
                 
-                if base_img_path: base_name = os.path.splitext(os.path.basename(base_img_path))[0]
-                else: base_name = f"sample_{len(meta_baseline)}"
+                cfg = OmegaConf.load(info['config'])
+                pipeline = load_models_inversion(cfg, self.device)
+                with open(info['json'], 'r') as f: data = json.load(f)
 
-                res_video_t2i = self.process_batch_t2i(pipeline, caption, param_list, setting_type)
-                self.save_gif(res_video_t2i, out_baseline, base_name, setting_type, param_list)
-                recs_t = self.save_split_frames(res_video_t2i, {
-                    "origin_source": base_img_path,
-                    "prompt": caption,
-                    "stage": 1,
-                    "mode": "T2I_Baseline",
-                    "chain_root": setting_name
-                }, out_baseline, param_list, setting_type, base_name)
-                meta_baseline.extend(recs_t)
+                out_baseline = os.path.join(self.args.output_dir, f"stage1_baseline_{setting_name}")
+                out_ours = os.path.join(self.args.output_dir, f"stage1_ours_{setting_name}")
+                os.makedirs(out_baseline, exist_ok=True)
+                os.makedirs(out_ours, exist_ok=True)
+                
+                meta_baseline, meta_ours = [], []
+                setting_type = info['type_key']
+                
+                image_root = os.path.join("camera_settings", f"camera_{setting_name}")
 
-                full_img_path = None
-                if base_img_path:
-                    full_img_path = os.path.join(image_root, base_img_path)
+                for item in tqdm(data, desc=f"Stg1 {setting_name}"):
+                    base_img_path = item.get('base_image_path')
+                    caption = item.get('caption')
+                    try: param_list = json.loads(item[info['list_key']])
+                    except: continue
+                    
+                    if base_img_path: base_name = os.path.splitext(os.path.basename(base_img_path))[0]
+                    else: base_name = f"sample_{len(meta_baseline)}"
 
-                if full_img_path and os.path.exists(full_img_path):
-                    raw_img = Image.open(full_img_path).convert("RGB")
-                    res_video_i2i = self.process_batch_i2i(pipeline, raw_img, caption, param_list, setting_type)
-                    self.save_gif(res_video_i2i, out_ours, base_name, setting_type, param_list)
-                    recs_o = self.save_split_frames(res_video_i2i, {
-                        "origin_source": full_img_path,
+                    res_video_t2i = self.process_batch_t2i(pipeline, caption, param_list, setting_type)
+                    self.save_gif(res_video_t2i, out_baseline, base_name, setting_type, param_list)
+                    recs_t = self.save_split_frames(res_video_t2i, {
+                        "origin_source": base_img_path,
                         "prompt": caption,
                         "stage": 1,
-                        "mode": "I2I_Ours"
-                    }, out_ours, param_list, setting_type, base_name)
-                    meta_ours.extend(recs_o)
-                else:
-                    logger.warning(f"Skipping Stage 1 I2I: Input image not found at '{full_img_path}'")
+                        "mode": "T2I_Baseline",
+                        "chain_root": setting_name
+                    }, out_baseline, param_list, setting_type, base_name)
+                    meta_baseline.extend(recs_t)
 
-            with open(os.path.join(out_baseline, "metadata.json"), "w") as f: json.dump(meta_baseline, f, indent=4)
-            with open(os.path.join(out_ours, "metadata.json"), "w") as f: json.dump(meta_ours, f, indent=4)
-            
-            del pipeline
-            torch.cuda.empty_cache()
+                    full_img_path = None
+                    if base_img_path:
+                        full_img_path = os.path.join(image_root, base_img_path)
+
+                    if full_img_path and os.path.exists(full_img_path):
+                        raw_img = Image.open(full_img_path).convert("RGB")
+                        res_video_i2i = self.process_batch_i2i(pipeline, raw_img, caption, param_list, setting_type)
+                        self.save_gif(res_video_i2i, out_ours, base_name, setting_type, param_list)
+                        recs_o = self.save_split_frames(res_video_i2i, {
+                            "origin_source": full_img_path,
+                            "prompt": caption,
+                            "stage": 1,
+                            "mode": "I2I_Ours"
+                        }, out_ours, param_list, setting_type, base_name)
+                        meta_ours.extend(recs_o)
+                    else:
+                        logger.warning(f"Skipping Stage 1 I2I: Input image not found at '{full_img_path}'")
+
+                with open(os.path.join(out_baseline, "metadata.json"), "w") as f: json.dump(meta_baseline, f, indent=4)
+                with open(os.path.join(out_ours, "metadata.json"), "w") as f: json.dump(meta_ours, f, indent=4)
+                
+                del pipeline
+                torch.cuda.empty_cache()
 
     def build_image_pool_strict(self, folder_path):
         if not os.path.exists(folder_path):
